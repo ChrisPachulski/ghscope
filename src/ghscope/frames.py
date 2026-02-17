@@ -223,8 +223,21 @@ def health_frames(report: HealthReport) -> dict[str, ibis.Table]:
     return tables
 
 
+def display_polars(tables: dict[str, ibis.Table]) -> None:
+    """Default output — print all tables as polars DataFrames."""
+    for name, table in tables.items():
+        header = name.upper().replace("_", " ")
+        print(f"\n=== {header} ===")
+        df = table.to_polars()
+        if name == "summary":
+            print(df.unpivot())
+        else:
+            print(df)
+    print()
+
+
 def export_tables(tables: dict[str, ibis.Table], fmt: str) -> None:
-    """Export ibis tables to stdout (csv) or files (parquet)."""
+    """Export ibis tables to stdout (csv), files (parquet), or Rich."""
     if fmt == "csv":
         for name, table in tables.items():
             sys.stdout.write(f"# {name}\n")

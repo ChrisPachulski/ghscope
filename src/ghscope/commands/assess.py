@@ -74,10 +74,13 @@ def run_assess(ctx: GhscopeContext) -> None:
     with Status(f"Assessing PRs for {ctx.repo}...", console=console):
         report = fetch_assess_report(ctx)
 
-    if ctx.fmt:
+    if ctx.json_output:
+        print_json(report)
+    elif ctx.fmt == "rich":
+        display_assess(report)
+    elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import assess_frames, export_tables
         export_tables(assess_frames(report), ctx.fmt)
-    elif ctx.json_output:
-        print_json(report)
     else:
-        display_assess(report)
+        from ghscope.frames import assess_frames, display_polars
+        display_polars(assess_frames(report))

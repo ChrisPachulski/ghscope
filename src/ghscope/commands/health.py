@@ -163,10 +163,13 @@ def run_health(ctx: GhscopeContext) -> None:
     with Status(f"Analyzing health for {ctx.repo}...", console=console):
         report = fetch_health_report(ctx)
 
-    if ctx.fmt:
+    if ctx.json_output:
+        print_json(report)
+    elif ctx.fmt == "rich":
+        display_health(report)
+    elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import health_frames, export_tables
         export_tables(health_frames(report), ctx.fmt)
-    elif ctx.json_output:
-        print_json(report)
     else:
-        display_health(report)
+        from ghscope.frames import health_frames, display_polars
+        display_polars(health_frames(report))

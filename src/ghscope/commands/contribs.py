@@ -55,10 +55,13 @@ def run_contribs(ctx: GhscopeContext) -> None:
     with Status(f"Analyzing contributors for {ctx.repo}...", console=console):
         report = fetch_contribs_report(ctx)
 
-    if ctx.fmt:
+    if ctx.json_output:
+        print_json(report)
+    elif ctx.fmt == "rich":
+        display_contribs(report)
+    elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import contribs_frames, export_tables
         export_tables(contribs_frames(report), ctx.fmt)
-    elif ctx.json_output:
-        print_json(report)
     else:
-        display_contribs(report)
+        from ghscope.frames import contribs_frames, display_polars
+        display_polars(contribs_frames(report))

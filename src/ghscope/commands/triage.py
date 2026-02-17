@@ -94,10 +94,13 @@ def run_triage(ctx: GhscopeContext) -> None:
     with Status(f"Analyzing PRs for {ctx.repo}...", console=console):
         report = fetch_triage_data(ctx)
 
-    if ctx.fmt:
+    if ctx.json_output:
+        print_json(report)
+    elif ctx.fmt == "rich":
+        display_triage(report)
+    elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import triage_frames, export_tables
         export_tables(triage_frames(report), ctx.fmt)
-    elif ctx.json_output:
-        print_json(report)
     else:
-        display_triage(report)
+        from ghscope.frames import triage_frames, display_polars
+        display_polars(triage_frames(report))

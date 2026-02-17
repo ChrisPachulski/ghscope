@@ -53,10 +53,13 @@ def run_review(ctx: GhscopeContext) -> None:
     with Status(f"Analyzing reviews for {ctx.repo}...", console=console):
         report = fetch_review_report(ctx)
 
-    if ctx.fmt:
+    if ctx.json_output:
+        print_json(report)
+    elif ctx.fmt == "rich":
+        display_review(report)
+    elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import review_frames, export_tables
         export_tables(review_frames(report), ctx.fmt)
-    elif ctx.json_output:
-        print_json(report)
     else:
-        display_review(report)
+        from ghscope.frames import review_frames, display_polars
+        display_polars(review_frames(report))
