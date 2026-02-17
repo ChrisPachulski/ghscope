@@ -7,3 +7,5 @@ build/
 .eggs/
 *.egg
 .env
+CLAUDE.md
+.claude/
