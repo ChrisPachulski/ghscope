@@ -53,8 +53,8 @@ def _repo_argument(f):
 def _global_options(f):
     """Common global options decorator."""
     f = click.option("--json", "json_output", is_flag=True, help="Output as JSON")(f)
-    f = click.option("--fmt", type=click.Choice(["csv", "parquet", "rich"]), default=None,
-                     help="Output format: csv, parquet, or rich (default: polars tables)")(f)
+    f = click.option("--fmt", type=click.Choice(["csv", "parquet", "rich", "md"]), default=None,
+                     help="Output format: csv, parquet, rich, or md (default: terminal scorecard)")(f)
     f = click.option("--no-cache", is_flag=True, help="Bypass cache")(f)
     f = click.option("--offline", is_flag=True, help="Use cached data only")(f)
     f = click.option("--limit", "-l", default=100, show_default=True, help="Max items to fetch")(f)

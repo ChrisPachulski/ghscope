@@ -58,6 +58,10 @@ def run_overview(ctx: GhscopeContext) -> None:
         if health:
             result["health"] = health
         print_json(result)
+    elif ctx.fmt == "md":
+        from ghscope.frames import scorecard_frame, display_scorecard_md
+        table = scorecard_frame(triage, contribs, review, health)
+        display_scorecard_md(ctx.repo, table)
     elif ctx.fmt in ("csv", "parquet"):
         from ghscope.frames import scorecard_frame, export_tables
         table = scorecard_frame(triage, contribs, review, health)
@@ -66,10 +70,6 @@ def run_overview(ctx: GhscopeContext) -> None:
         from ghscope.display.tables import display_overview
         display_overview(ctx.repo, {}, triage, health)
     else:
-        import polars as pl
-        from ghscope.frames import scorecard_frame
+        from ghscope.frames import scorecard_frame, display_scorecard
         table = scorecard_frame(triage, contribs, review, health)
-        print(f"\n=== {ctx.repo} SCORECARD ===")
-        with pl.Config(tbl_width_chars=120, fmt_str_lengths=80, tbl_rows=-1):
-            print(table.to_polars())
-        print()
+        display_scorecard(ctx.repo, table)

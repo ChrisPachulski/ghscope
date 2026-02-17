@@ -252,9 +252,9 @@ def scorecard_frame(
         cov = review.review_coverage
         total = review.total_reviewed_prs + review.total_unreviewed_merged
         if cov < 30:
-            read = f"{review.total_unreviewed_merged} of {total} merges go in blind"
+            read = f"{review.total_unreviewed_merged}/{total} merges go in blind"
         elif cov < 70:
-            read = "partial review coverage"
+            read = "partial coverage — room to improve"
         else:
             read = "most PRs reviewed before merge"
         add("review_coverage", f"{cov:.0f}%", read)
@@ -263,66 +263,76 @@ def scorecard_frame(
             top = review.reviewer_stats[0]
             n = review.reviewer_concentration
             if n <= 1:
-                read = f"sole gatekeeper, {_fmt_hours(top.avg_turnaround_hours)} avg turnaround"
+                read = f"sole gatekeeper · {_fmt_hours(top.avg_turnaround_hours)} avg turnaround"
             else:
-                read = f"{n} reviewers cover 50% of reviews"
-            add("reviewers", f"{n} ({top.login})", read)
+                read = f"{n} reviewers cover 50%+ of reviews"
+            add("reviewer_spread", f"{n} ({top.login})", read)
 
     # --- Health signals ---
     if health:
-        add("active_contributors_30d", str(health.active_contributors_30d),
-            "only 1 person active" if health.active_contributors_30d <= 1
-            else f"{health.active_contributors_30d} people active recently")
+        add("active_contributors", str(health.active_contributors_30d),
+            "only 1 person active in last 30d" if health.active_contributors_30d <= 1
+            else f"{health.active_contributors_30d} people active in last 30d")
 
         if health.bus_factor == 0:
-            read = "no merges in the lookback = can't even compute it"
+            read = "no merges in lookback · can't compute"
         elif health.bus_factor == 1:
             read = "single point of failure"
         else:
             read = f"{health.bus_factor} people cover 50%+ of merges"
         add("bus_factor", str(health.bus_factor), read)
 
-        add("commits_per_week", f"{health.commits_per_week:.1f}",
-            f"top committer: {health.top_committers[0][0]} ({health.top_committers[0][1]} of {sum(c for _, c in health.top_committers)} commits)"
-            if health.top_committers else "no commit data")
+        if health.top_committers:
+            top_name, top_n = health.top_committers[0]
+            total_c = sum(c for _, c in health.top_committers)
+            pct = round(top_n / total_c * 100) if total_c else 0
+            read = f"{top_name} dominates ({top_n}/{total_c}, {pct}%)"
+        else:
+            read = "no commit data"
+        add("commit_velocity", f"{health.commits_per_week:.1f}/wk", read)
 
         if health.release_cadence_days is not None:
-            add("release_cadence", f"{health.release_cadence_days:.0f} days",
-                f"last release: {health.last_release}" if health.last_release else "has releases")
+            add("release_cadence", f"{health.release_cadence_days:.0f}d",
+                f"last: {health.last_release}" if health.last_release else "has releases")
         else:
-            add("release_cadence", "null",
+            add("release_cadence", "—",
                 "no releases ever" if not health.last_release else f"only 1 release: {health.last_release}")
 
         if health.issue_response_time_hours is not None:
-            add("issue_response_time", _fmt_hours(health.issue_response_time_hours),
-                "fast response" if health.issue_response_time_hours < 24
-                else "slow response" if health.issue_response_time_hours < 168
-                else "very slow response")
+            if health.issue_response_time_hours < 24:
+                qual = "fast · under 24h"
+            elif health.issue_response_time_hours < 168:
+                qual = "slow · over a day"
+            else:
+                qual = "very slow · over a week"
+            add("issue_response", _fmt_hours(health.issue_response_time_hours), qual)
         else:
-            add("issue_response_time", "null", "no issue responses to measure")
+            add("issue_response", "—", "no issue responses to measure")
 
     # --- Triage signals ---
     if triage:
         add("merge_rate", f"{triage.merge_rate:.1f}%",
-            f"median {_fmt_hours(triage.median_merge_hours)}, p75 {_fmt_hours(triage.p75_merge_hours)}")
+            f"median {_fmt_hours(triage.median_merge_hours)} · p75 {_fmt_hours(triage.p75_merge_hours)}")
 
         if triage.maintainer_stats:
             top = triage.maintainer_stats[0]
             if len(triage.maintainer_stats) == 1:
-                read = f"{top.login} is the only merger"
+                read = f"{top.login} is the sole merger"
             else:
-                read = f"{top.login} leads with {top.merge_count} merges"
+                read = f"{top.login} leads · {top.merge_count} merges"
             add("top_merger", f"{top.login} ({top.merge_count})", read)
 
     # --- Contributor signals ---
     if contribs:
-        add("first_timers", str(contribs.first_timers),
-            "zero new contributors in the window" if contribs.first_timers == 0
-            else f"{contribs.first_timer_merge_rate:.0f}% merge rate, {contribs.retention_rate:.0f}% retention")
+        if contribs.first_timers == 0:
+            read = "zero new contributors in window"
+        else:
+            read = f"{contribs.first_timer_merge_rate:.0f}% merge rate · {contribs.retention_rate:.0f}% retention"
+        add("first_timers", str(contribs.first_timers), read)
 
         if contribs.top_contributors:
             top = contribs.top_contributors[0]
-            add("top_contributor", f"{top.login} ({top.merged_count} merges)",
+            add("top_contributor", f"{top.login} ({top.merged_count})",
                 f"{top.merge_rate:.0f}% merge rate")
 
     # --- Unreviewed open PRs ---
@@ -330,11 +340,53 @@ def scorecard_frame(
         n = len(review.unreviewed_open_prs)
         stale = len(review.stale_review_prs)
         oldest = max(pr.age_hours for pr in review.unreviewed_open_prs)
-        add("unreviewed_open_prs", str(n),
-            f"{stale} stale (>7d), oldest waiting {_fmt_hours(oldest)}")
+        add("unreviewed_prs", str(n),
+            f"{stale} stale · oldest waiting {_fmt_hours(oldest)}")
 
     return ibis.memtable(rows) if rows else ibis.memtable(
         {"signal": [], "value": [], "read": []})
+
+
+def display_scorecard(repo: str, table: ibis.Table) -> None:
+    """Render the scorecard as clean aligned text."""
+    from rich.console import Console
+
+    console = Console()
+    df = table.to_polars()
+    rows = list(df.iter_rows(named=True))
+
+    sig_w = max(len(r["signal"]) for r in rows)
+    val_w = max(len(r["value"]) for r in rows)
+
+    console.print()
+    console.print(f"  [bold]{repo}[/bold] by the numbers")
+    console.print(f"  [dim]{'─' * (sig_w + val_w + 30)}[/dim]")
+    console.print()
+    for r in rows:
+        sig = r["signal"].ljust(sig_w)
+        val = r["value"].rjust(val_w)
+        console.print(f"  [cyan]{sig}[/]  [bold white]{val}[/]  [dim]│[/] {r['read']}")
+    console.print()
+
+
+def display_scorecard_md(repo: str, table: ibis.Table) -> None:
+    """Render the scorecard as a markdown table."""
+    df = table.to_polars()
+    rows = list(df.iter_rows(named=True))
+
+    sig_w = max(len(r["signal"]) for r in rows + [{"signal": "signal"}])
+    val_w = max(len(r["value"]) for r in rows + [{"value": "value"}])
+    read_w = max(len(r["read"]) for r in rows + [{"read": "read"}])
+
+    def row_str(s: str, v: str, r: str) -> str:
+        return f"| {s.ljust(sig_w)} | {v.rjust(val_w)} | {r.ljust(read_w)} |"
+
+    print(f"\n**{repo} by the numbers**\n")
+    print(row_str("signal", "value", "read"))
+    print(f"|{'-' * (sig_w + 2)}|{'-' * (val_w + 2)}:|{'-' * (read_w + 2)}|")
+    for r in rows:
+        print(row_str(r["signal"], r["value"], r["read"]))
+    print()
 
 
 def display_polars(tables: dict[str, ibis.Table]) -> None:
