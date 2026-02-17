@@ -68,3 +68,12 @@ def health(repo: str, **kwargs) -> dict[str, ibis.Table]:
     from ghscope.commands.health import fetch_health_report
     from ghscope.frames import health_frames
     return health_frames(fetch_health_report(ctx))
+
+
+def scorecard(repo: str, **kwargs) -> ibis.Table:
+    """Synthesized signal/value/read scorecard from all reports."""
+    ctx = _ctx(repo, **kwargs)
+    from ghscope.commands.overview import _fetch_all_reports
+    from ghscope.frames import scorecard_frame
+    t, c, r, h = _fetch_all_reports(ctx)
+    return scorecard_frame(t, c, r, h)

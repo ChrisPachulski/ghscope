@@ -1,114 +1,75 @@
-"""Combined dashboard (default command)."""
+"""Combined scorecard — synthesized intelligence from all reports."""
 
 from __future__ import annotations
-
-from collections import Counter
-from datetime import datetime, timedelta
-from statistics import median
 
 from rich.console import Console
 from rich.status import Status
 
-from ghscope.core import cache
-from ghscope.core.analysis import compute_bus_factor, parse_datetime
-from ghscope.core.github import graphql
-from ghscope.core.models import HealthReport
-from ghscope.core.queries import MERGED_PRS_PAGE, REPO_OVERVIEW
+from ghscope.cli import GhscopeContext
 from ghscope.display.json_out import print_json
-from ghscope.display.tables import display_overview
 
 console = Console()
 
 
-def _fetch_overview(ctx) -> dict:
-    cache_key = "overview"
-    if not ctx.no_cache:
-        if ctx.offline:
-            cached = cache.get_offline(ctx.repo, cache_key)
-        else:
-            cached = cache.get(ctx.repo, cache_key)
-        if cached is not None:
-            return cached
+def _fetch_all_reports(ctx: GhscopeContext):
+    """Fetch all 4 reports, returning None for any that fail."""
+    triage = contribs = review = health = None
 
-    if ctx.offline:
-        return {}
+    try:
+        from ghscope.commands.triage import fetch_triage_data
+        triage = fetch_triage_data(ctx)
+    except Exception:
+        pass
 
-    data = graphql(REPO_OVERVIEW, {"owner": ctx.owner, "name": ctx.name})
-    result = data.get("repository", data)
-    cache.put(ctx.repo, cache_key, result)
-    return result
+    try:
+        from ghscope.commands.contribs import fetch_contribs_report
+        contribs = fetch_contribs_report(ctx)
+    except Exception:
+        pass
+
+    try:
+        from ghscope.commands.review import fetch_review_report
+        review = fetch_review_report(ctx)
+    except Exception:
+        pass
+
+    try:
+        from ghscope.commands.health import fetch_health_report
+        health = fetch_health_report(ctx)
+    except Exception:
+        pass
+
+    return triage, contribs, review, health
 
 
-def run_overview(ctx) -> None:
-    """Full repository overview dashboard."""
-    with Status(f"Fetching overview for {ctx.repo}...", console=console):
-        overview = _fetch_overview(ctx)
-
-        # Also fetch triage and health summaries
-        triage = None
-        health = None
-        try:
-            from ghscope.commands.triage import fetch_triage_data
-            triage = fetch_triage_data(ctx)
-        except Exception:
-            pass
-        try:
-            from ghscope.commands.health import _fetch_commits
-            from ghscope.commands.triage import _fetch_pr_data
-
-            commits = _fetch_commits(ctx)
-            merged_prs = _fetch_pr_data(ctx, "MERGED", MERGED_PRS_PAGE, "merged_prs")
-            weeks = ctx.days / 7
-            commits_per_week = len(commits) / weeks if weeks > 0 else 0
-
-            cutoff_30d = datetime.now() - timedelta(days=30)
-            active_authors = set()
-            for c in commits:
-                dt = parse_datetime(c.get("committedDate"))
-                if dt and dt.replace(tzinfo=None) > cutoff_30d:
-                    author = (c.get("author") or {}).get("user") or {}
-                    login = author.get("login")
-                    if login:
-                        active_authors.add(login)
-
-            bus_factor, _ = compute_bus_factor(merged_prs, days=ctx.days)
-
-            release_cadence = None
-            last_release = None
-            releases = overview.get("releases", {}).get("nodes", [])
-            if releases:
-                last_release = releases[0].get("tagName")
-                if len(releases) >= 2:
-                    dates = [parse_datetime(r["createdAt"]) for r in releases]
-                    deltas = [(dates[i] - dates[i + 1]).days for i in range(len(dates) - 1)]
-                    release_cadence = median(deltas) if deltas else None
-
-            committer_counts = Counter()
-            for c in commits:
-                author = (c.get("author") or {}).get("user") or {}
-                login = author.get("login", "unknown")
-                committer_counts[login] += 1
-
-            health = HealthReport(
-                repo=ctx.repo,
-                commits_per_week=commits_per_week,
-                active_contributors_30d=len(active_authors),
-                release_cadence_days=release_cadence,
-                last_release=last_release,
-                issue_response_time_hours=None,
-                bus_factor=bus_factor,
-                top_committers=committer_counts.most_common(10),
-                weekly_commits=[],
-            )
-        except Exception:
-            pass
+def run_overview(ctx: GhscopeContext) -> None:
+    """Full repository scorecard — synthesized from all reports."""
+    with Status(f"Building scorecard for {ctx.repo}...", console=console):
+        triage, contribs, review, health = _fetch_all_reports(ctx)
 
     if ctx.json_output:
-        result = {"overview": overview}
+        result = {}
         if triage:
             result["triage"] = triage
+        if contribs:
+            result["contribs"] = contribs
+        if review:
+            result["review"] = review
         if health:
             result["health"] = health
         print_json(result)
+    elif ctx.fmt in ("csv", "parquet"):
+        from ghscope.frames import scorecard_frame, export_tables
+        table = scorecard_frame(triage, contribs, review, health)
+        export_tables({"scorecard": table}, ctx.fmt)
+    elif ctx.fmt == "rich":
+        from ghscope.display.tables import display_overview
+        display_overview(ctx.repo, {}, triage, health)
     else:
-        display_overview(ctx.repo, overview, triage, health)
+        import polars as pl
+        from ghscope.frames import scorecard_frame
+        table = scorecard_frame(triage, contribs, review, health)
+        print(f"\n=== {ctx.repo} SCORECARD ===")
+        with pl.Config(tbl_width_chars=120, fmt_str_lengths=80, tbl_rows=-1):
+            print(table.to_polars())
+        print()
