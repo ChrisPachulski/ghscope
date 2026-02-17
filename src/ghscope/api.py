@@ -3,12 +3,15 @@
 Usage:
     import ghscope.api as gs
 
+    # Scorecard — single ibis.Table (signal/value/read)
+    gs.scorecard("mtgjson/mtgjson").to_polars()
+
+    # Individual reports — dict[str, ibis.Table]
     tables = gs.review("mtgjson/mtgjson")
     tables["reviewers"].to_polars()
     tables["summary"].to_pandas()
 
-    tables = gs.contribs("facebook/react", limit=200, days=180)
-    tables["contributors"].to_polars()
+    # All: gs.triage(), gs.review(), gs.contribs(), gs.health(), gs.assess()
 """
 
 from __future__ import annotations

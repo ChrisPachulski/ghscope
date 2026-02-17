@@ -80,12 +80,12 @@ def main():
 
     \b
     Usage:
-      ghscope <owner/repo>               Full overview (default)
+      ghscope <owner/repo>               Scorecard overview (default)
       ghscope triage <owner/repo>         PR merge patterns
-      ghscope assess <owner/repo>         Your open PRs' merge likelihood
-      ghscope contribs <owner/repo>       Contributor dynamics & first-timer retention
       ghscope review <owner/repo>         Review bottlenecks & reviewer stats
+      ghscope contribs <owner/repo>       Contributor dynamics & first-timer retention
       ghscope health <owner/repo>         Commit velocity & bus factor
+      ghscope assess <owner/repo>         Your open PRs' merge likelihood
     """
     pass
 
@@ -94,7 +94,7 @@ def main():
 @_repo_argument
 @_global_options
 def overview_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
-    """Full repository overview dashboard (default)."""
+    """Scorecard overview — synthesized intelligence (default)."""
     ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.overview import run_overview
     run_overview(ctx)

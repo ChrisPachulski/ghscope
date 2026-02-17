@@ -1,10 +1,11 @@
-"""Convert report dataclasses to ibis memtables.
+"""Convert report dataclasses to ibis memtables and render output.
 
-Each function returns dict[str, ibis.Table] — one table per logical entity.
+Per-report functions return dict[str, ibis.Table].
+scorecard_frame() synthesizes all reports into a single signal/value/read table.
 Tables can be materialized to any backend:
 
     tables["reviewers"].to_polars()
-    tables["reviewers"].to_pandas()
+    scorecard_frame(...).to_pandas()
 """
 
 from __future__ import annotations
