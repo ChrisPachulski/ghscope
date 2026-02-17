@@ -113,6 +113,36 @@ class ContributorReport:
     repeat_contributors: int  # 2+ merged PRs
     one_time_contributors: int
     spam_prs: list[PRSummary]
+    first_timers: int = 0
+    first_timer_merge_rate: float = 0.0
+    first_timer_median_merge_hours: float | None = None
+    repeat_median_merge_hours: float | None = None
+    retained_first_timers: int = 0
+    retention_rate: float = 0.0
+
+
+@dataclass
+class ReviewerStats:
+    login: str
+    review_count: int
+    avg_turnaround_hours: float
+    approval_count: int
+    changes_requested_count: int
+    comment_only_count: int
+
+
+@dataclass
+class ReviewReport:
+    repo: str
+    total_reviewed_prs: int
+    total_unreviewed_merged: int
+    review_coverage: float  # % of merged PRs with at least 1 review
+    median_first_review_hours: float | None
+    median_review_to_merge_hours: float | None
+    reviewer_stats: list[ReviewerStats]
+    reviewer_concentration: int  # how many reviewers cover 50% of reviews
+    unreviewed_open_prs: list[PRSummary]  # open PRs with 0 reviews
+    stale_review_prs: list[PRSummary]  # open PRs waiting >7 days for review
 
 
 @dataclass

@@ -13,14 +13,15 @@ console = Console()
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
-SUBCOMMANDS = {"triage", "assess", "contribs", "health"}
+SUBCOMMANDS = {"triage", "assess", "contribs", "health", "review"}
 
 
 class GhscopeContext:
     """Shared context passed to all commands."""
 
     def __init__(self, repo: str, json_output: bool, no_cache: bool,
-                 offline: bool, limit: int, days: int, verbose: bool):
+                 offline: bool, limit: int, days: int, verbose: bool,
+                 fmt: str | None = None):
         self.repo = repo
         self.owner, self.name = repo.split("/", 1)
         self.json_output = json_output
@@ -29,6 +30,7 @@ class GhscopeContext:
         self.limit = limit
         self.days = days
         self.verbose = verbose
+        self.fmt = fmt
 
 
 class GhscopeGroup(click.Group):
@@ -51,6 +53,8 @@ def _repo_argument(f):
 def _global_options(f):
     """Common global options decorator."""
     f = click.option("--json", "json_output", is_flag=True, help="Output as JSON")(f)
+    f = click.option("--fmt", type=click.Choice(["csv", "parquet"]), default=None,
+                     help="Export as ibis-backed CSV or Parquet")(f)
     f = click.option("--no-cache", is_flag=True, help="Bypass cache")(f)
     f = click.option("--offline", is_flag=True, help="Use cached data only")(f)
     f = click.option("--limit", "-l", default=100, show_default=True, help="Max items to fetch")(f)
@@ -59,13 +63,15 @@ def _global_options(f):
     return f
 
 
-def _make_context(repo, json_output, no_cache, offline, limit, days, verbose):
+def _make_context(repo, json_output, no_cache, offline, limit, days, verbose,
+                  fmt=None):
     if "/" not in repo:
         console.print("[red]Error:[/] REPO must be owner/repo format (e.g. facebook/react)")
         sys.exit(1)
     if not offline:
         check_gh_cli()
-    return GhscopeContext(repo, json_output, no_cache, offline, limit, days, verbose)
+    return GhscopeContext(repo, json_output, no_cache, offline, limit, days,
+                          verbose, fmt=fmt)
 
 
 @click.group(cls=GhscopeGroup, context_settings=CONTEXT_SETTINGS)
@@ -77,7 +83,8 @@ def main():
       ghscope <owner/repo>               Full overview (default)
       ghscope triage <owner/repo>         PR merge patterns
       ghscope assess <owner/repo>         Your open PRs' merge likelihood
-      ghscope contribs <owner/repo>       Contributor dynamics
+      ghscope contribs <owner/repo>       Contributor dynamics & first-timer retention
+      ghscope review <owner/repo>         Review bottlenecks & reviewer stats
       ghscope health <owner/repo>         Commit velocity & bus factor
     """
     pass
@@ -86,9 +93,9 @@ def main():
 @main.command("overview")
 @_repo_argument
 @_global_options
-def overview_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
+def overview_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
     """Full repository overview dashboard (default)."""
-    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose)
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.overview import run_overview
     run_overview(ctx)
 
@@ -96,9 +103,9 @@ def overview_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
 @main.command("triage")
 @_repo_argument
 @_global_options
-def triage_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
+def triage_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
     """PR merge patterns & maintainer responsiveness."""
-    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose)
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.triage import run_triage
     run_triage(ctx)
 
@@ -106,9 +113,9 @@ def triage_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
 @main.command("assess")
 @_repo_argument
 @_global_options
-def assess_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
+def assess_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
     """Likelihood your open PRs get merged."""
-    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose)
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.assess import run_assess
     run_assess(ctx)
 
@@ -116,18 +123,28 @@ def assess_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
 @main.command("contribs")
 @_repo_argument
 @_global_options
-def contribs_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
-    """Contributor dynamics, spam detection."""
-    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose)
+def contribs_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
+    """Contributor dynamics & first-timer retention."""
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.contribs import run_contribs
     run_contribs(ctx)
+
+
+@main.command("review")
+@_repo_argument
+@_global_options
+def review_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
+    """Review bottlenecks & reviewer stats."""
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
+    from ghscope.commands.review import run_review
+    run_review(ctx)
 
 
 @main.command("health")
 @_repo_argument
 @_global_options
-def health_cmd(repo, json_output, no_cache, offline, limit, days, verbose):
+def health_cmd(repo, json_output, fmt, no_cache, offline, limit, days, verbose):
     """Commit velocity, release cadence, bus factor."""
-    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose)
+    ctx = _make_context(repo, json_output, no_cache, offline, limit, days, verbose, fmt=fmt)
     from ghscope.commands.health import run_health
     run_health(ctx)

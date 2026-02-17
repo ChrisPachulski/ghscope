@@ -9,6 +9,7 @@ from statistics import median, quantiles
 
 from ghscope.core.models import (
     BatchCluster, ContributorStats, MaintainerStats, PRAssessment, PRSummary,
+    ReviewerStats, ReviewReport,
 )
 
 
@@ -335,6 +336,186 @@ def compute_contributor_stats(
 
     stats.sort(key=lambda s: s.merged_count, reverse=True)
     return stats
+
+
+def compute_review_analysis(
+    merged_nodes: list[dict],
+    open_nodes: list[dict],
+    repo: str,
+) -> ReviewReport:
+    """Analyze review patterns from raw PR nodes with expanded review data."""
+    reviewer_data: dict[str, dict] = defaultdict(
+        lambda: {"count": 0, "turnarounds": [], "approved": 0,
+                 "changes_requested": 0, "commented": 0}
+    )
+    reviewed_count = 0
+    unreviewed_count = 0
+    first_review_times: list[float] = []
+    review_to_merge_times: list[float] = []
+
+    for node in merged_nodes:
+        author = (node.get("author") or {}).get("login", "ghost")
+        created_at = parse_datetime(node["createdAt"])
+        merged_at = parse_datetime(node.get("mergedAt"))
+        reviews = node.get("reviews", {}).get("nodes", [])
+
+        # Filter to non-author reviews with valid timestamps
+        non_author = []
+        for r in reviews:
+            reviewer = (r.get("author") or {}).get("login", "ghost")
+            if reviewer != author:
+                non_author.append(r)
+
+        if non_author:
+            reviewed_count += 1
+
+            # First review turnaround
+            timed = [(r, parse_datetime(r.get("submittedAt"))) for r in non_author]
+            timed = [(r, t) for r, t in timed if t is not None]
+            if timed and created_at:
+                timed.sort(key=lambda x: x[1])
+                first_t = timed[0][1]
+                turnaround = (first_t - created_at).total_seconds() / 3600
+                first_review_times.append(max(0, turnaround))
+                if merged_at:
+                    rtm = (merged_at - first_t).total_seconds() / 3600
+                    review_to_merge_times.append(max(0, rtm))
+
+            # Per-reviewer aggregation
+            for r in non_author:
+                reviewer = (r.get("author") or {}).get("login", "ghost")
+                state = r.get("state", "")
+                submitted = parse_datetime(r.get("submittedAt"))
+                d = reviewer_data[reviewer]
+                d["count"] += 1
+                if state == "APPROVED":
+                    d["approved"] += 1
+                elif state == "CHANGES_REQUESTED":
+                    d["changes_requested"] += 1
+                elif state == "COMMENTED":
+                    d["commented"] += 1
+                if submitted and created_at:
+                    d["turnarounds"].append(
+                        max(0, (submitted - created_at).total_seconds() / 3600)
+                    )
+        else:
+            unreviewed_count += 1
+
+    # Build ReviewerStats
+    reviewer_stats = []
+    for login, d in reviewer_data.items():
+        avg_t = sum(d["turnarounds"]) / len(d["turnarounds"]) if d["turnarounds"] else 0
+        reviewer_stats.append(ReviewerStats(
+            login=login,
+            review_count=d["count"],
+            avg_turnaround_hours=avg_t,
+            approval_count=d["approved"],
+            changes_requested_count=d["changes_requested"],
+            comment_only_count=d["commented"],
+        ))
+    reviewer_stats.sort(key=lambda s: s.review_count, reverse=True)
+
+    # Reviewer concentration (bus factor for reviews)
+    total_reviews = sum(s.review_count for s in reviewer_stats)
+    concentration = 0
+    cumulative = 0
+    for s in reviewer_stats:
+        cumulative += s.review_count
+        concentration += 1
+        if total_reviews > 0 and cumulative / total_reviews >= 0.5:
+            break
+
+    total_merged = reviewed_count + unreviewed_count
+    coverage = (reviewed_count / total_merged * 100) if total_merged > 0 else 0
+    med_first = median(first_review_times) if first_review_times else None
+    med_rtm = median(review_to_merge_times) if review_to_merge_times else None
+
+    # Open PRs without reviews
+    unreviewed_open: list[PRSummary] = []
+    stale_open: list[PRSummary] = []
+    for node in open_nodes:
+        author = (node.get("author") or {}).get("login", "ghost")
+        reviews = node.get("reviews", {}).get("nodes", [])
+        non_author = [r for r in reviews
+                      if (r.get("author") or {}).get("login", "ghost") != author]
+        if not non_author:
+            pr = parse_pr_node(node, "OPEN")
+            unreviewed_open.append(pr)
+            if pr.age_hours > 7 * 24:
+                stale_open.append(pr)
+
+    return ReviewReport(
+        repo=repo,
+        total_reviewed_prs=reviewed_count,
+        total_unreviewed_merged=unreviewed_count,
+        review_coverage=coverage,
+        median_first_review_hours=med_first,
+        median_review_to_merge_hours=med_rtm,
+        reviewer_stats=reviewer_stats,
+        reviewer_concentration=concentration,
+        unreviewed_open_prs=unreviewed_open,
+        stale_review_prs=stale_open,
+    )
+
+
+def compute_first_timer_stats(
+    contrib_stats: list[ContributorStats],
+    merged: list[PRSummary],
+    days: int = 90,
+) -> dict:
+    """Compute first-timer retention metrics."""
+    cutoff = datetime.now() - timedelta(days=days)
+
+    first_timers = [
+        c for c in contrib_stats
+        if c.first_contribution
+        and c.first_contribution.replace(tzinfo=None) > cutoff
+    ]
+
+    if not first_timers:
+        return {
+            "first_timers": 0, "merge_rate": 0.0,
+            "median_merge_hours": None, "repeat_median_hours": None,
+            "retained": 0, "retention_rate": 0.0,
+        }
+
+    ft_with_merges = [c for c in first_timers if c.merged_count > 0]
+    ft_merge_rate = len(ft_with_merges) / len(first_timers) * 100
+
+    # First-timer merge times
+    ft_logins = {c.login for c in first_timers}
+    ft_times = [
+        pr.time_to_merge_hours for pr in merged
+        if pr.author in ft_logins and pr.time_to_merge_hours is not None
+    ]
+    ft_median = median(ft_times) if ft_times else None
+
+    # Repeat contributor merge times (for comparison)
+    repeat_logins = {
+        c.login for c in contrib_stats
+        if c.merged_count >= 2 and c.login not in ft_logins
+    }
+    repeat_times = [
+        pr.time_to_merge_hours for pr in merged
+        if pr.author in repeat_logins and pr.time_to_merge_hours is not None
+    ]
+    repeat_median = median(repeat_times) if repeat_times else None
+
+    # Retained: first-timers who came back with 2+ total PRs
+    retained = sum(
+        1 for c in first_timers
+        if (c.merged_count + c.closed_count + c.open_count) >= 2
+    )
+    retention_rate = retained / len(first_timers) * 100
+
+    return {
+        "first_timers": len(first_timers),
+        "merge_rate": round(ft_merge_rate, 1),
+        "median_merge_hours": ft_median,
+        "repeat_median_hours": repeat_median,
+        "retained": retained,
+        "retention_rate": round(retention_rate, 1),
+    }
 
 
 def compute_bus_factor(prs: list[PRSummary], days: int = 90) -> tuple[int, list[tuple[str, int]]]:

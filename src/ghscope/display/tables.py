@@ -8,7 +8,8 @@ from rich.table import Table
 from rich.text import Text
 
 from ghscope.core.models import (
-    AssessmentReport, ContributorReport, HealthReport, TriageReport,
+    AssessmentReport, ContributorReport, HealthReport, ReviewReport,
+    TriageReport,
 )
 from ghscope.display.charts import sparkline
 
@@ -144,10 +145,79 @@ def display_contribs(report: ContributorReport) -> None:
             )
         console.print(ct)
 
+    # First-timer stats
+    if report.first_timers > 0:
+        ft = Table(title="First-Timer Retention", border_style="dim")
+        ft.add_column("Metric", style="bold")
+        ft.add_column("Value")
+        ft.add_row("New Contributors", str(report.first_timers))
+        ft.add_row("First-Timer Merge Rate", f"{report.first_timer_merge_rate}%")
+        if report.first_timer_median_merge_hours is not None:
+            ft.add_row("First-Timer Median Merge", format_hours(report.first_timer_median_merge_hours))
+        if report.repeat_median_merge_hours is not None:
+            ft.add_row("Repeat Contributor Median", format_hours(report.repeat_median_merge_hours))
+        ft.add_row("Retained (2+ PRs)", str(report.retained_first_timers))
+        ft.add_row("Retention Rate", f"{report.retention_rate}%")
+        console.print(ft)
+
     if report.spam_prs:
         console.print(f"\n[red bold]Potential Spam PRs ({len(report.spam_prs)}):[/]")
         for pr in report.spam_prs[:10]:
             console.print(f"  [dim]#{pr.number} {pr.title} by {pr.author}[/]")
+
+    console.print()
+
+
+def display_review(report: ReviewReport) -> None:
+    console.print()
+    console.print(Panel(
+        f"[bold]{report.repo}[/] — Review Bottleneck Analysis",
+        subtitle=f"Reviewed: {report.total_reviewed_prs}  Unreviewed merges: {report.total_unreviewed_merged}",
+    ))
+
+    # Summary stats
+    table = Table(title="Review Coverage", show_header=False, border_style="dim")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+    table.add_row("Review Coverage", f"{report.review_coverage:.1f}%")
+    if report.median_first_review_hours is not None:
+        table.add_row("Median Time to First Review", format_hours(report.median_first_review_hours))
+    if report.median_review_to_merge_hours is not None:
+        table.add_row("Median Review → Merge", format_hours(report.median_review_to_merge_hours))
+    table.add_row("Reviewer Concentration", f"{report.reviewer_concentration} reviewer(s) cover 50% of reviews")
+    console.print(table)
+
+    # Top reviewers
+    if report.reviewer_stats:
+        rt = Table(title="Top Reviewers", border_style="dim")
+        rt.add_column("Reviewer", style="cyan")
+        rt.add_column("Reviews", justify="right")
+        rt.add_column("Avg Turnaround", justify="right")
+        rt.add_column("Approved", justify="right")
+        rt.add_column("Changes Req.", justify="right")
+        rt.add_column("Comments", justify="right")
+        for rs in report.reviewer_stats[:10]:
+            rt.add_row(
+                rs.login,
+                str(rs.review_count),
+                format_hours(rs.avg_turnaround_hours),
+                str(rs.approval_count),
+                str(rs.changes_requested_count),
+                str(rs.comment_only_count),
+            )
+        console.print(rt)
+
+    # Unreviewed open PRs
+    if report.unreviewed_open_prs:
+        console.print(f"\n[yellow bold]Open PRs Awaiting Review ({len(report.unreviewed_open_prs)}):[/]")
+        for pr in report.unreviewed_open_prs[:10]:
+            age = format_hours(pr.age_hours)
+            style = "red" if pr.age_hours > 7 * 24 else "dim"
+            console.print(f"  [{style}]#{pr.number} {pr.title} by {pr.author} ({age})[/]")
+
+    # Stale PRs
+    if report.stale_review_prs:
+        console.print(f"\n[red bold]Stale (>7 days, no review): {len(report.stale_review_prs)}[/]")
 
     console.print()
 

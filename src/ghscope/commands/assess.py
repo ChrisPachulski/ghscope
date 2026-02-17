@@ -50,26 +50,34 @@ def _fetch_historical(ctx: GhscopeContext) -> tuple[list[PRSummary], list[PRSumm
     return merged, closed
 
 
+def fetch_assess_report(ctx: GhscopeContext) -> AssessmentReport:
+    """Fetch and compute assessment report."""
+    user = get_viewer_login()
+    user_prs = _fetch_user_open_prs(ctx, user)
+    merged, closed = _fetch_historical(ctx)
+
+    assessments = []
+    for pr in user_prs:
+        prob, factors = compute_merge_probability(pr, merged, closed)
+        sim_merged = find_similar_prs(pr, merged)
+        sim_closed = find_similar_prs(pr, closed)
+        assessments.append(PRAssessment(
+            pr=pr, probability=prob, factors=factors,
+            similar_merged=sim_merged, similar_closed=sim_closed,
+        ))
+
+    assessments.sort(key=lambda a: a.probability, reverse=True)
+    return AssessmentReport(repo=ctx.repo, user=user, assessments=assessments)
+
+
 def run_assess(ctx: GhscopeContext) -> None:
     with Status(f"Assessing PRs for {ctx.repo}...", console=console):
-        user = get_viewer_login()
-        user_prs = _fetch_user_open_prs(ctx, user)
-        merged, closed = _fetch_historical(ctx)
+        report = fetch_assess_report(ctx)
 
-        assessments = []
-        for pr in user_prs:
-            prob, factors = compute_merge_probability(pr, merged, closed)
-            sim_merged = find_similar_prs(pr, merged)
-            sim_closed = find_similar_prs(pr, closed)
-            assessments.append(PRAssessment(
-                pr=pr, probability=prob, factors=factors,
-                similar_merged=sim_merged, similar_closed=sim_closed,
-            ))
-
-        assessments.sort(key=lambda a: a.probability, reverse=True)
-        report = AssessmentReport(repo=ctx.repo, user=user, assessments=assessments)
-
-    if ctx.json_output:
+    if ctx.fmt:
+        from ghscope.frames import assess_frames, export_tables
+        export_tables(assess_frames(report), ctx.fmt)
+    elif ctx.json_output:
         print_json(report)
     else:
         display_assess(report)

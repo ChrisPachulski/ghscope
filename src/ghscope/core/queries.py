@@ -148,6 +148,68 @@ query($owner: String!, $name: String!, $since: GitTimestamp!) {
 }
 """
 
+MERGED_PRS_WITH_REVIEWS = """
+query($owner: String!, $name: String!, $first: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: MERGED, first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      edges {
+        node {
+          number
+          title
+          author { login }
+          mergedBy { login }
+          createdAt
+          mergedAt
+          labels(first: 10) { nodes { name } }
+          additions
+          deletions
+          changedFiles
+          reviews(first: 10) {
+            nodes {
+              author { login }
+              state
+              submittedAt
+            }
+            totalCount
+          }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"""
+
+OPEN_PRS_WITH_REVIEWS = """
+query($owner: String!, $name: String!, $first: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      edges {
+        node {
+          number
+          title
+          author { login }
+          createdAt
+          labels(first: 10) { nodes { name } }
+          additions
+          deletions
+          changedFiles
+          reviews(first: 10) {
+            nodes {
+              author { login }
+              state
+              submittedAt
+            }
+            totalCount
+          }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"""
+
 ISSUE_TIMELINE = """
 query($owner: String!, $name: String!, $first: Int!, $cursor: String!) {
   repository(owner: $owner, name: $name) {

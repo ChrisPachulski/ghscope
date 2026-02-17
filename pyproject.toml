@@ -7,7 +7,7 @@ name = "ghscope"
 version = "0.1.0"
 description = "GitHub repository intelligence from your terminal"
 requires-python = ">=3.12"
-dependencies = ["click>=8.0", "rich>=13.0"]
+dependencies = ["click>=8.0", "rich>=13.0", "ibis-framework[duckdb]>=9.0"]
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Chris Pachulski", email = "cjpach@icloud.com"}]
